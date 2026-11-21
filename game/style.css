@@ -1,0 +1,29 @@
+/* The Lantern Thief — page chrome around the canvas. */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #0b0d12;
+  color: #c8cede;
+  font-family: sans-serif;
+}
+
+main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #0b0d12;
+  border: 1px solid #2a3040;
+}
+
+.foot {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #8a93a8;
+  margin: 10px 2px 0 2px;
+}
