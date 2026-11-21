@@ -2,23 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>The Lantern Thief — a stealth game</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Lantern Thief — a stealth game</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <main>
   <canvas id="game" width="1280" height="860"></canvas>
-  <p class="foot">The Lantern Thief — steal every glowing relic, then slip out the exit, unseen.
-  WASD / arrows to move, Shift to sneak, click a tile to walk there, M to mute, R to restart.</p>
+  <p class="hint">Move with WASD or the arrow keys — hold Shift to sneak. Click a tile to walk there. Collect every relic, then reach the glowing exit without being seen. R restarts the level, N starts a new game, P pauses, M mutes.</p>
 </main>
-<script src="src/random.js"></script>
-<script src="src/levels.js"></script>
-<script src="src/guards.js"></script>
-<script src="src/audio.js"></script>
-<script src="src/input.js"></script>
-<script src="src/render.js"></script>
-<script src="src/shots.js"></script>
-<script src="src/main.js"></script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

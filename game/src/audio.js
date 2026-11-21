@@ -1,84 +1,103 @@
-// audio.js — procedural WebAudio sounds for The Lantern Thief. No audio files:
-// every cue is a small oscillator or filtered-noise burst made on the spot,
-// so the game ships no assets and never touches the network. Sound starts on
-// the first user gesture (browsers block audio before that) and can be muted.
+// audio.js — procedural WebAudio sounds for The Lantern Thief.
+// No audio files: every cue is a short oscillator or noise burst made on
+// the spot. The context is created lazily on the first user gesture (a
+// browser will not let it start before one), and every call is guarded so
+// a headless run without audio never throws.
+let ctx = null;
+let muted = false;
+let master = null;
 
-function makeSound() {
-  const sound = {
-    ctx: null,
-    muted: false,
-    lastStep: 0,
-    ensure: function () {
-      if (!this.ctx) {
-        try {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          this.ctx = new AC();
-        } catch (e) {
-          this.ctx = null;
-        }
-      }
-      if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
-      return this.ctx;
-    },
-    toggleMute: function () {
-      this.muted = !this.muted;
-      return this.muted;
-    },
-    // A short tone: frequency slide from f0 to f1 over `dur` seconds.
-    tone: function (f0, f1, dur, type, gain) {
-      if (this.muted) return;
-      const ctx = this.ensure();
-      if (!ctx) return;
-      const t = ctx.currentTime;
-      const osc = ctx.createOscillator();
-      const g = ctx.createGain();
-      osc.type = type || "sine";
-      osc.frequency.setValueAtTime(f0, t);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
-      g.gain.setValueAtTime(gain || 0.08, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      osc.connect(g);
-      g.connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + dur + 0.02);
-    },
-    // A soft footstep tick; louder and faster when the thief runs.
-    step: function (running) {
-      const now = performance.now();
-      if (now - this.lastStep < (running ? 240 : 380)) return;
-      this.lastStep = now;
-      this.tone(running ? 140 : 110, 70, 0.07, "triangle", running ? 0.05 : 0.03);
-    },
-    // The rising sting when a guard starts a chase.
-    sting: function () {
-      this.tone(220, 660, 0.35, "sawtooth", 0.06);
-      this.tone(330, 990, 0.3, "sine", 0.05);
-    },
-    // A two-note chime when a relic is collected.
-    pickup: function () {
-      this.tone(880, 880, 0.12, "sine", 0.07);
-      const self = this;
-      setTimeout(function () {
-        self.tone(1318, 1318, 0.18, "sine", 0.07);
-      }, 90);
-    },
-    // A low buzz when the thief is caught.
-    caught: function () {
-      this.tone(180, 55, 0.5, "square", 0.07);
-    },
-    // A small arpeggio when a level is cleared.
-    win: function () {
-      const self = this;
-      [523, 659, 784, 1046].forEach(function (f, i) {
-        setTimeout(function () {
-          self.tone(f, f, 0.22, "sine", 0.07);
-        }, i * 110);
-      });
-    },
-    // A soft click for menu buttons and the exit opening.
-    click: function () {
-      this.tone(660, 520, 0.06, "sine", 0.05);
-    },
-  };
-  return sound;
+export function ensureAudio() {
+  if (ctx) {
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    return;
+  }
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    ctx = new AC();
+    master = ctx.createGain();
+    master.gain.value = 0.16;
+    master.connect(ctx.destination);
+  } catch (e) {
+    ctx = null;
+  }
+}
+
+export function setMuted(value) {
+  muted = value;
+  if (master) master.gain.value = value ? 0 : 0.16;
+}
+
+export function isMuted() {
+  return muted;
+}
+
+function tone(freq, duration, type, volume, slideTo) {
+  if (!ctx || muted) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, ctx.currentTime + duration);
+    gain.gain.setValueAtTime(volume || 0.5, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+  } catch (e) {
+    // Audio is decoration; a failure here must never break the game.
+  }
+}
+
+function noiseBurst(duration, volume, lowpass) {
+  if (!ctx || muted) return;
+  try {
+    const len = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = lowpass || 900;
+    const gain = ctx.createGain();
+    gain.gain.value = volume || 0.4;
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    src.start();
+  } catch (e) {
+    // Audio is decoration; a failure here must never break the game.
+  }
+}
+
+// One soft footstep, quieter while sneaking.
+export function playStep(sneaking) {
+  noiseBurst(0.05, sneaking ? 0.12 : 0.3, sneaking ? 400 : 800);
+}
+
+// A two-note chime when a relic is taken.
+export function playRelic() {
+  tone(660, 0.12, "sine", 0.5);
+  setTimeout(() => tone(990, 0.2, "sine", 0.5), 90);
+}
+
+// A rising sting when a guard spots the thief.
+export function playSpotted() {
+  tone(220, 0.35, "sawtooth", 0.4, 440);
+}
+
+// A low thud when the thief is caught.
+export function playCaught() {
+  tone(140, 0.4, "triangle", 0.6, 60);
+  noiseBurst(0.25, 0.5, 300);
+}
+
+// A small arpeggio when a level is cleared.
+export function playLevelClear() {
+  [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => tone(f, 0.22, "sine", 0.5), i * 110));
 }
