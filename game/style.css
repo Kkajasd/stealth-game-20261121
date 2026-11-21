@@ -1,38 +1,20 @@
-/* The Lantern Thief — page chrome around the game canvas. */
-* {
-  box-sizing: border-box;
+/* The Lantern Thief — page chrome. The game itself is the canvas. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: #0a0e14;
+  height: 100%;
 }
 
 body {
-  margin: 0;
-  background: #070a14;
-  color: #c8d2ea;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-main {
-  padding: 16px;
-  text-align: center;
+  overflow: hidden;
 }
 
 canvas {
   display: block;
-  margin: 0 auto;
-  background: #0b0f1c;
-  border: 1px solid #232c47;
-  border-radius: 6px;
-  max-width: 100%;
-  height: auto;
-}
-
-.hint {
-  max-width: 900px;
-  margin: 12px auto 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #8a94ad;
+  background: #0b0f16;
 }

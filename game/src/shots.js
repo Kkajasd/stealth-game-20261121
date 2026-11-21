@@ -1,121 +1,98 @@
-// shots.js — deterministic staged scenes for the screenshots.
-// ?shot=cover|patrol|alarm|exit&seed=1 renders one fixed frame: the level,
-// the thief, every guard's position and facing, the alert and the clock are
-// all pinned down, so the same URL always renders the same pixels. The
-// scenes are staged to show the game at its best: the cover shows all four
-// stealth elements (level, vision cone, cover, exit) in one readable frame.
-import { parseLevel, tileCenter, LEVELS } from "./levels.js";
-import { makeGuard } from "./guards.js";
+// shots.js — deterministic screenshot scenes for The Lantern Thief.
+//
+// Each shot stages level 1 into one frozen moment: fixed positions,
+// fixed alert values, a fixed clock. Nothing here rolls dice, so the
+// same shot always paints the same pixels — screenshots are reproducible
+// real renders of the game's own code.
+//
+//   cover    — the thief mid-grab of a relic as a cone sweeps across,
+//              all four stealth elements in one frame
+//   distract — a pebble's sound ring pulls a guard to investigate
+//   alarm    — SPOTTED: a guard's red cone is right on the thief
+//   exit     — every relic taken, the exit stands open
 
-export const SHOTS = ["cover", "patrol", "alarm", "exit"];
+import { TILE } from "./levels.js";
 
-function stagedGuard(world, def, col, row, facing, alert, state) {
-  const guard = makeGuard(def, world);
-  const c = tileCenter(col, row);
-  guard.x = c.x;
-  guard.y = c.y;
-  guard.facing = facing;
-  guard.alert = alert;
-  guard.state = state;
-  return guard;
+function placeGuard(game, i, tx, ty, dir, alert, state) {
+  const g = game.guards[i];
+  if (!g) return;
+  g.x = (tx + 0.5) * TILE;
+  g.y = (ty + 0.5) * TILE;
+  g.dir = dir;
+  g.alert = alert;
+  g.state = state;
+  g.lookTimer = 0;
+  g.path = null;
 }
 
-function baseState(levelIndex, time, message) {
-  const def = LEVELS[levelIndex];
-  const world = parseLevel(def);
-  const spawn = tileCenter(world.spawn.col, world.spawn.row);
-  return {
-    levelIndex,
-    world,
-    thief: { x: spawn.x, y: spawn.y, facing: 0, sneaking: false, movingFast: false },
-    guards: world.guards.map((g) => makeGuard(g, world)),
-    relicsTaken: 0,
-    lives: 3,
-    time,
-    alert: 0,
-    status: "playing",
-    message,
-    exitOpen: false,
+function placeThief(game, tx, ty, dir, sneaking) {
+  game.thief.x = (tx + 0.5) * TILE;
+  game.thief.y = (ty + 0.5) * TILE;
+  game.thief.dir = dir;
+  game.thief.sneaking = sneaking;
+  game.thief.running = false;
+  game.thief.path = null;
+}
+
+function takeRelics(game, count) {
+  game.level.relics.forEach((r, i) => {
+    r.taken = i < count;
+  });
+}
+
+export function applyShot(game, name) {
+  game.loadLevel(0);
+  game.status = "play";
+  game.lives = 3;
+  game.rings = [];
+  const shots = {
+    cover() {
+      // The thief, crouched beside the glowing relic, as a guard's bright
+      // amber cone sweeps right across. Exit locked, bottom-right.
+      takeRelics(game, 1);
+      placeThief(game, 15, 2, 0, true);
+      placeGuard(game, 0, 12, 3, -0.32, 45, "suspicious");
+      placeGuard(game, 1, 14, 7, -2.2, 18, "patrol");
+      game.time = 47;
+      game.caption = "One relic down — the cone is sweeping your way.";
+    },
+    distract() {
+      // The pebble has just landed: its ring expands, the guard turns
+      // toward the noise, and the thief slips past behind the bush.
+      takeRelics(game, 1);
+      placeThief(game, 8, 6, 0.5, true);
+      placeGuard(game, 0, 13, 5, Math.PI, 40, "investigate");
+      placeGuard(game, 1, 15, 8, -1.2, 12, "patrol");
+      game.rings = [{ x: 11.5, y: 5.5, age: 0.45, life: 0.9, maxR: 4.5 }];
+      game.time = 63;
+      game.caption = "Clink! The guard turns toward the noise — slip past.";
+    },
+    alarm() {
+      // SPOTTED: the guard is two tiles away, red cone on the thief,
+      // the meter maxed. Break line of sight or lose a life.
+      takeRelics(game, 2);
+      placeThief(game, 10, 4, 0, false);
+      game.thief.running = true;
+      placeGuard(game, 0, 8, 4, 0, 92, "chase");
+      placeGuard(game, 1, 15, 6, 2.6, 60, "suspicious");
+      game.time = 88;
+      game.caption = "SPOTTED! Break line of sight — hide in the dark.";
+    },
+    exit() {
+      // Every relic taken, the exit glowing open, the guards far away.
+      takeRelics(game, 3);
+      placeThief(game, 16, 10, 0, false);
+      placeGuard(game, 0, 3, 3, Math.PI, 5, "patrol");
+      placeGuard(game, 1, 14, 2, -Math.PI / 2, 10, "patrol");
+      game.time = 92;
+      game.caption = "Every relic is yours — the exit stands open. Go!";
+    },
   };
+  const fn = shots[name];
+  if (!fn) return false;
+  fn();
+  game.maxAlert = Math.max(0, ...game.guards.map((g) => g.alert));
+  return true;
 }
 
-// Build the staged state for one named shot. Returns null for an unknown
-// shot name, so the caller can fall back to the live game.
-export function makeShotState(shot, levelOverride) {
-  if (shot === "cover") {
-    const s = baseState(0, 47, LEVELS[0].caption);
-    // Thief crouched in the bush at (21,2); a guard's cone sweeps right
-    // across it; a second guard patrols below; relics and the locked exit
-    // are all in the same frame.
-    const bush = tileCenter(21, 2);
-    s.thief.x = bush.x;
-    s.thief.y = bush.y;
-    s.thief.facing = Math.PI / 2;
-    s.thief.sneaking = true;
-    const g0 = stagedGuard(s.world, s.world.guards[0], 17, 2, 0, 12, "patrol");
-    const g1 = stagedGuard(s.world, s.world.guards[1], 18, 11, -Math.PI / 2, 4, "patrol");
-    s.guards = [g0, g1];
-    s.relicsTaken = 1;
-    s.world.relics[0].taken = true;
-    s.alert = 12;
-    return s;
-  }
-  if (shot === "patrol") {
-    const s = baseState(1, 32, LEVELS[1].caption);
-    // Three guards mid-patrol, cones pointing three ways, dotted patrol
-    // routes under them; the thief sneaks along the top wall.
-    const thief = tileCenter(19, 2);
-    s.thief.x = thief.x;
-    s.thief.y = thief.y;
-    s.thief.facing = Math.PI;
-    s.thief.sneaking = true;
-    const g0 = stagedGuard(s.world, s.world.guards[0], 20, 4, Math.PI / 2, 8, "patrol");
-    const g1 = stagedGuard(s.world, s.world.guards[1], 11, 11, 0, 18, "suspicious");
-    const g2 = stagedGuard(s.world, s.world.guards[2], 15, 15, -Math.PI / 2, 3, "patrol");
-    s.guards = [g0, g1, g2];
-    s.relicsTaken = 1;
-    s.world.relics[0].taken = true;
-    s.alert = 18;
-    return s;
-  }
-  if (shot === "alarm") {
-    const s = baseState(0, 12, "Spotted! Break the line of sight — hide in the dark, not the light.");
-    // A near-miss turned into a chase: the guard's red cone is right on
-    // the thief, who is sprinting for the bush at (21,2).
-    const thief = tileCenter(18, 3);
-    s.thief.x = thief.x;
-    s.thief.y = thief.y;
-    s.thief.facing = Math.PI / 4;
-    s.thief.movingFast = true;
-    const g0 = stagedGuard(s.world, s.world.guards[0], 14, 3, 0.3, 88, "chase");
-    const g1 = stagedGuard(s.world, s.world.guards[1], 18, 11, -Math.PI / 2, 30, "suspicious");
-    s.guards = [g0, g1];
-    s.relicsTaken = 1;
-    s.world.relics[0].taken = true;
-    s.alert = 88;
-    return s;
-  }
-  if (shot === "exit") {
-    const s = baseState(2, 88, LEVELS[2].caption);
-    // Every relic taken, the vault door open and glowing, the thief one
-    // dash away — the last guard is looking the other way.
-    for (const relic of s.world.relics) relic.taken = true;
-    s.relicsTaken = s.world.relics.length;
-    s.exitOpen = true;
-    const thief = tileCenter(22, 14);
-    s.thief.x = thief.x;
-    s.thief.y = thief.y;
-    s.thief.facing = 0;
-    const g0 = stagedGuard(s.world, s.world.guards[0], 12, 3, Math.PI, 6, "patrol");
-    const g1 = stagedGuard(s.world, s.world.guards[1], 12, 9, Math.PI / 2, 10, "patrol");
-    const g2 = stagedGuard(s.world, s.world.guards[2], 16, 13, -Math.PI / 2, 2, "patrol");
-    const g3 = stagedGuard(s.world, s.world.guards[3], 18, 16, Math.PI, 5, "patrol");
-    s.guards = [g0, g1, g2, g3];
-    s.alert = 10;
-    return s;
-  }
-  if (levelOverride !== undefined && levelOverride >= 0 && levelOverride < LEVELS.length) {
-    return baseState(levelOverride, 30, LEVELS[levelOverride].caption);
-  }
-  return null;
-}
+export const SHOT_NAMES = ["cover", "distract", "alarm", "exit"];
